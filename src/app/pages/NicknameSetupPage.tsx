@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router';
 import { Sparkles } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -11,12 +11,38 @@ import { emojiAvatars } from '../../lib/utils';
 
 export const NicknameSetupPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { language } = useLanguage();
-  const { user, refreshProfile } = useAuth();
+  const { user, profile, loading: authLoading, refreshProfile } = useAuth();
   const t = useTranslation(language);
   const [nickname, setNickname] = useState('');
   const [selectedEmoji, setSelectedEmoji] = useState(emojiAvatars[0]);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const referralFromUrl = new URLSearchParams(location.search).get('ref');
+    if (referralFromUrl) {
+      localStorage.setItem('pending_referral_code', referralFromUrl);
+    }
+  }, [location.search]);
+
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!user) {
+      const referralCode = localStorage.getItem('pending_referral_code');
+      if (referralCode) {
+        navigate(`/auth?ref=${encodeURIComponent(referralCode)}`, { replace: true });
+      } else {
+        navigate('/auth', { replace: true });
+      }
+      return;
+    }
+
+    if (profile) {
+      navigate('/app/feed', { replace: true });
+    }
+  }, [authLoading, user, profile, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +66,7 @@ export const NicknameSetupPage: React.FC = () => {
         .from('profiles')
         .select('id')
         .eq('nickname', nickname)
-        .single();
+        .maybeSingle();
 
       if (existing) {
         toast.error(t('nickname_taken'));
@@ -49,8 +75,7 @@ export const NicknameSetupPage: React.FC = () => {
       }
 
       // Check for referral code in URL
-      const urlParams = new URLSearchParams(window.location.search);
-      const referralCode = urlParams.get('ref');
+      const referralCode = localStorage.getItem('pending_referral_code');
 
       // Create profile
       const { error: profileError } = await supabase
@@ -69,8 +94,8 @@ export const NicknameSetupPage: React.FC = () => {
         const { data: inviter } = await supabase
           .from('profiles')
           .select('id')
-          .ilike('id', `${referralCode.toLowerCase()}%`)
-          .single();
+          .eq('nickname', referralCode.toLowerCase())
+          .maybeSingle();
 
         if (inviter && inviter.id !== user.id) {
           await supabase.from('referrals').insert({
@@ -88,6 +113,7 @@ export const NicknameSetupPage: React.FC = () => {
       }
 
       await refreshProfile();
+      localStorage.removeItem('pending_referral_code');
       toast.success('Welcome to Aura!');
       navigate('/app/feed');
     } catch (error: any) {

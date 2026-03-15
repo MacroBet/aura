@@ -29,7 +29,6 @@ export const ProfilePage: React.FC = () => {
     fetchFollowStatus();
     fetchActions();
     fetchCategories();
-    fetchStats();
   }, [id]);
 
   const fetchProfile = async () => {
@@ -51,7 +50,7 @@ export const ProfilePage: React.FC = () => {
       .select('status')
       .eq('follower_id', user.id)
       .eq('following_id', id)
-      .single();
+      .maybeSingle();
 
     if (data) {
       setIsFollowing(true);
@@ -67,7 +66,9 @@ export const ProfilePage: React.FC = () => {
       .order('created_at', { ascending: false })
       .limit(20);
 
-    setActions(data || []);
+    const fetchedActions = data || [];
+    setActions(fetchedActions);
+    fetchStats(fetchedActions.map((action: any) => action.id));
   };
 
   const fetchCategories = async () => {
@@ -75,12 +76,24 @@ export const ProfilePage: React.FC = () => {
     setCategories(data || []);
   };
 
-  const fetchStats = async () => {
+  const fetchStats = async (actionIds?: string[]) => {
+    let ids = actionIds || [];
+
+    if (ids.length === 0) {
+      const { data: profileActions } = await supabase
+        .from('actions')
+        .select('id')
+        .eq('user_id', id);
+      ids = profileActions?.map((action) => action.id) || [];
+    }
+
     const [followers, following, actionsData, confirmations] = await Promise.all([
       supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', id).eq('status', 'accepted'),
       supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', id).eq('status', 'accepted'),
       supabase.from('actions').select('*', { count: 'exact', head: true }).eq('user_id', id),
-      supabase.from('action_confirmations').select('*', { count: 'exact', head: true }).eq('action_id', actions.map(a => a.id)),
+      ids.length > 0
+        ? supabase.from('action_confirmations').select('*', { count: 'exact', head: true }).in('action_id', ids)
+        : Promise.resolve({ count: 0 }),
     ]);
 
     setStats({

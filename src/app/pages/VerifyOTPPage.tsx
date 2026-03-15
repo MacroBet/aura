@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { Sparkles } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useLanguage } from '../../lib/contexts';
@@ -18,12 +18,18 @@ const MAX_OTP_LENGTH = 8;
 
 export const VerifyOTPPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { language } = useLanguage();
   const t = useTranslation(language);
   const [otp, setOtp] = useState('');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+
+  const getReferralCode = () => {
+    const referralFromUrl = new URLSearchParams(location.search).get('ref');
+    return referralFromUrl || localStorage.getItem('pending_referral_code');
+  };
 
   useEffect(() => {
     const pendingEmail = localStorage.getItem('pending_email');
@@ -69,10 +75,16 @@ export const VerifyOTPPage: React.FC = () => {
         .maybeSingle();
 
       localStorage.removeItem('pending_email');
+      const referralCode = getReferralCode();
 
       if (!profile) {
-        navigate('/setup-nickname');
+        if (referralCode) {
+          navigate(`/setup-nickname?ref=${encodeURIComponent(referralCode)}`);
+        } else {
+          navigate('/setup-nickname');
+        }
       } else {
+        localStorage.removeItem('pending_referral_code');
         navigate('/app/feed');
       }
     } catch (error: any) {
@@ -84,13 +96,17 @@ export const VerifyOTPPage: React.FC = () => {
 
   const handleResend = async () => {
     if (resendCooldown > 0) return;
+    if (!email) {
+      toast.error('Missing email. Please try again.');
+      navigate('/auth');
+      return;
+    }
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          // Keep resend behavior consistent with login-only OTP.
-          shouldCreateUser: false,
+          shouldCreateUser: true,
         },
       });
 

@@ -12,8 +12,8 @@ export const InvitePage: React.FC = () => {
   const { language } = useLanguage();
   const t = useTranslation(language);
   const [referralStats, setReferralStats] = useState({ count: 0, aura: 0 });
-  const referralCode = user ? generateReferralCode(user.id) : '';
-  const referralLink = `${window.location.origin}/setup-nickname?ref=${referralCode}`;
+  const referralCode = profile?.nickname || (user ? generateReferralCode(user.id) : '');
+  const referralLink = `${window.location.origin}/auth?ref=${referralCode}`;
 
   useEffect(() => {
     fetchReferralStats();

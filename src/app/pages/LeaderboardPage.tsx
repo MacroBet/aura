@@ -75,10 +75,16 @@ export const LeaderboardPage: React.FC = () => {
         setLeaders(leadersList);
       }
     } else if (activeTab === 'friends') {
+      if (!user) {
+        setLeaders([]);
+        setLoading(false);
+        return;
+      }
+
       const { data: following } = await supabase
         .from('follows')
         .select('following_id')
-        .eq('follower_id', user!.id)
+        .eq('follower_id', user.id)
         .eq('status', 'accepted');
 
       const followingIds = following?.map(f => f.following_id) || [];

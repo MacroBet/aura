@@ -51,7 +51,9 @@ export function getWeekStart(): Date {
   const now = new Date();
   const dayOfWeek = now.getDay();
   const diff = now.getDate() - dayOfWeek;
-  return new Date(now.setDate(diff));
+  const start = new Date(now.setDate(diff));
+  start.setHours(0, 0, 0, 0);
+  return start;
 }
 
 // Emoji avatars pool

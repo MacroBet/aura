@@ -85,13 +85,18 @@ export const FeedPage: React.FC = () => {
       // Process expired actions and score them
       const processedActions = await Promise.all(
         (data || []).map(async (action) => {
-          if (action.status === 'active' && new Date(action.expires_at) < new Date()) {
+          if (
+            action.status === 'active' &&
+            action.user_id === user.id &&
+            categories.length > 0 &&
+            new Date(action.expires_at) < new Date()
+          ) {
             // Score this action
             const auraAwarded = action.confirmation_count > 0
               ? (categories.find(c => c.id === action.category_id)?.base_points || 0) * action.confirmation_count
               : 0;
 
-            await supabase
+            const { error: updateError } = await supabase
               .from('actions')
               .update({
                 status: action.confirmation_count > 0 ? 'scored' : 'void',
@@ -99,6 +104,10 @@ export const FeedPage: React.FC = () => {
                 scored_at: new Date().toISOString(),
               })
               .eq('id', action.id);
+
+            if (updateError) {
+              return action;
+            }
 
             if (auraAwarded > 0) {
               // Update user's total aura

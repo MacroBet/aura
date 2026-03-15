@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { Sparkles } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 
 export const AuthPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { language } = useLanguage();
   const t = useTranslation(language);
   const [email, setEmail] = useState('');
@@ -26,18 +27,23 @@ export const AuthPage: React.FC = () => {
     setLoading(true);
     
     try {
+      const referralCode = new URLSearchParams(location.search).get('ref');
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          // Login-only flow: avoid auto-signup confirmation emails.
-          shouldCreateUser: false,
+          shouldCreateUser: true,
         },
       });
 
       if (error) throw error;
 
       localStorage.setItem('pending_email', email);
-      navigate('/verify-otp');
+      if (referralCode) {
+        localStorage.setItem('pending_referral_code', referralCode);
+        navigate(`/verify-otp?ref=${encodeURIComponent(referralCode)}`);
+      } else {
+        navigate('/verify-otp');
+      }
       toast.success('Check your email for the code!');
     } catch (error: any) {
       toast.error(error.message || 'Failed to send code');

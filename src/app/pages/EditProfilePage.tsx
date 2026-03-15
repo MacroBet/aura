@@ -53,8 +53,21 @@ export const EditProfilePage: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/');
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.signOut({ scope: 'global' });
+      if (error) throw error;
+
+      localStorage.removeItem('pending_email');
+      localStorage.removeItem('pending_referral_code');
+
+      toast.success('Logged out');
+      navigate('/auth', { replace: true });
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to log out');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -137,6 +150,7 @@ export const EditProfilePage: React.FC = () => {
           onClick={handleLogout}
           variant="outline"
           className="w-full border-red-500/50 text-red-400 hover:bg-red-500/10"
+          disabled={loading}
         >
           <LogOut className="w-4 h-4 mr-2" />
           {t('logout')}
