@@ -138,7 +138,7 @@ export const ActionCard: React.FC<ActionCardProps> = ({ action, category, profil
           {expired ? (
             <>{action.aura_awarded} {t('aura')}</>
           ) : (
-            <>{t('will_earn')} {potentialAura} {t('aura')}</>
+            <>{t('earned')} {potentialAura} {t('aura')}</>
           )}
         </span>
       </div>

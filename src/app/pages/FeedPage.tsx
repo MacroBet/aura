@@ -109,14 +109,6 @@ export const FeedPage: React.FC = () => {
               return action;
             }
 
-            if (auraAwarded > 0) {
-              // Update user's total aura
-              await supabase.rpc('increment_aura', {
-                user_id: action.user_id,
-                amount: auraAwarded,
-              });
-            }
-
             return { ...action, status: action.confirmation_count > 0 ? 'scored' : 'void', aura_awarded: auraAwarded };
           }
           return action;

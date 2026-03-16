@@ -217,11 +217,35 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to update confirmation count when confirmation is added
 CREATE OR REPLACE FUNCTION update_confirmation_count()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_action_owner UUID;
+  v_category_id UUID;
+  v_base_points INTEGER;
 BEGIN
   UPDATE actions
   SET confirmation_count = confirmation_count + 1
-  WHERE id = NEW.action_id;
+  WHERE id = NEW.action_id
+  RETURNING user_id, category_id INTO v_action_owner, v_category_id;
+
+  SELECT base_points
+  INTO v_base_points
+  FROM categories
+  WHERE id = v_category_id;
+
+  IF v_action_owner IS NOT NULL
+     AND v_base_points IS NOT NULL
+     AND v_base_points > 0
+     AND v_action_owner != NEW.user_id THEN
+    UPDATE profiles
+    SET aura_total = aura_total + v_base_points,
+        updated_at = NOW()
+    WHERE id = v_action_owner;
+  END IF;
   
   -- Create notification for action owner
   INSERT INTO notifications (user_id, type, data)
@@ -240,7 +264,7 @@ BEGIN
   
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE TRIGGER trigger_update_confirmation_count
 AFTER INSERT ON action_confirmations
@@ -249,15 +273,39 @@ EXECUTE FUNCTION update_confirmation_count();
 
 -- Function to update confirmation count when confirmation is removed
 CREATE OR REPLACE FUNCTION decrease_confirmation_count()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_action_owner UUID;
+  v_category_id UUID;
+  v_base_points INTEGER;
 BEGIN
   UPDATE actions
   SET confirmation_count = GREATEST(0, confirmation_count - 1)
-  WHERE id = OLD.action_id;
+  WHERE id = OLD.action_id
+  RETURNING user_id, category_id INTO v_action_owner, v_category_id;
+
+  SELECT base_points
+  INTO v_base_points
+  FROM categories
+  WHERE id = v_category_id;
+
+  IF v_action_owner IS NOT NULL
+     AND v_base_points IS NOT NULL
+     AND v_base_points > 0
+     AND v_action_owner != OLD.user_id THEN
+    UPDATE profiles
+    SET aura_total = GREATEST(0, aura_total - v_base_points),
+        updated_at = NOW()
+    WHERE id = v_action_owner;
+  END IF;
   
   RETURN OLD;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE TRIGGER trigger_decrease_confirmation_count
 AFTER DELETE ON action_confirmations
@@ -266,7 +314,11 @@ EXECUTE FUNCTION decrease_confirmation_count();
 
 -- Function to create notification on new comment
 CREATE OR REPLACE FUNCTION notify_on_comment()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   INSERT INTO notifications (user_id, type, data)
   SELECT 
@@ -284,7 +336,7 @@ BEGIN
   
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE TRIGGER trigger_notify_on_comment
 AFTER INSERT ON comments
@@ -293,7 +345,11 @@ EXECUTE FUNCTION notify_on_comment();
 
 -- Function to create notification on new follow
 CREATE OR REPLACE FUNCTION notify_on_follow()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   INSERT INTO notifications (user_id, type, data)
   SELECT 
@@ -315,7 +371,7 @@ BEGIN
   
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE TRIGGER trigger_notify_on_follow
 AFTER INSERT ON follows
@@ -324,7 +380,11 @@ EXECUTE FUNCTION notify_on_follow();
 
 -- Function to notify when follow request is accepted
 CREATE OR REPLACE FUNCTION notify_on_follow_accept()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   IF OLD.status = 'pending' AND NEW.status = 'accepted' THEN
     INSERT INTO notifications (user_id, type, data)
@@ -341,7 +401,7 @@ BEGIN
   
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE TRIGGER trigger_notify_on_follow_accept
 AFTER UPDATE ON follows
