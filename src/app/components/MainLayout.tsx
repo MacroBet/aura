@@ -1,12 +1,17 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router';
 import { Home, TrendingUp, PlusCircle, Bell, User } from 'lucide-react';
-import { useAuth } from '../../lib/contexts';
+import { useAuth, useLanguage } from '../../lib/contexts';
+import { useTranslation } from '../../lib/translations';
+import { supabase } from '../../lib/supabase';
 
 export const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, profile, loading } = useAuth();
+  const { language } = useLanguage();
+  const t = useTranslation(language);
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -15,6 +20,41 @@ export const MainLayout: React.FC = () => {
       navigate('/setup-nickname');
     }
   }, [user, profile, loading, navigate]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchPendingRequestsCount = async () => {
+      const { count } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('following_id', user.id)
+        .eq('status', 'pending');
+      setPendingRequestsCount(count || 0);
+    };
+
+    fetchPendingRequestsCount();
+
+    const channel = supabase
+      .channel(`follows-pending-count-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'follows',
+          filter: `following_id=eq.${user.id}`,
+        },
+        () => {
+          fetchPendingRequestsCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   if (loading || !user || !profile) {
     return (
@@ -28,11 +68,11 @@ export const MainLayout: React.FC = () => {
   }
 
   const navItems = [
-    { path: '/app/feed', icon: Home, label: 'Feed' },
-    { path: '/app/leaderboard', icon: TrendingUp, label: 'Leaderboard' },
-    { path: '/app/create', icon: PlusCircle, label: 'Post' },
-    { path: '/app/notifications', icon: Bell, label: 'Notifications' },
-    { path: `/app/profile/${user.id}`, icon: User, label: 'Profile' },
+    { path: '/app/feed', icon: Home, label: t('for_you') },
+    { path: '/app/leaderboard', icon: TrendingUp, label: t('leaderboard') },
+    { path: '/app/create', icon: PlusCircle, label: t('post') },
+    { path: '/app/notifications', icon: Bell, label: t('notifications'), badge: pendingRequestsCount },
+    { path: `/app/profile/${user.id}`, icon: User, label: t('profile') },
   ];
 
   return (
@@ -57,7 +97,14 @@ export const MainLayout: React.FC = () => {
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                <Icon className="w-6 h-6" />
+                <div className="relative">
+                  <Icon className="w-6 h-6" />
+                  {!!item.badge && (
+                    <span className="absolute -top-2 -right-2 min-w-4 h-4 px-1 rounded-full bg-pink-500 text-[10px] leading-4 text-white text-center">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  )}
+                </div>
                 <span className="text-xs mt-1">{item.label}</span>
               </Link>
             );
@@ -89,7 +136,14 @@ export const MainLayout: React.FC = () => {
                     : 'text-gray-400 hover:bg-white/5 hover:text-white'
                 }`}
               >
-                <Icon className="w-5 h-5" />
+                <div className="relative">
+                  <Icon className="w-5 h-5" />
+                  {!!item.badge && (
+                    <span className="absolute -top-2 -right-2 min-w-4 h-4 px-1 rounded-full bg-pink-500 text-[10px] leading-4 text-white text-center">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  )}
+                </div>
                 <span>{item.label}</span>
               </Link>
             );

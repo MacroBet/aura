@@ -15,6 +15,8 @@ import { InvitePage } from './pages/InvitePage';
 import { SearchPage } from './pages/SearchPage';
 import { FollowRequestsPage } from './pages/FollowRequestsPage';
 import { VoidPage } from './pages/VoidPage';
+import { FollowersPage } from './pages/FollowersPage';
+import { FollowingPage } from './pages/FollowingPage';
 
 export const router = createBrowserRouter([
   {
@@ -56,6 +58,14 @@ export const router = createBrowserRouter([
       {
         path: 'profile/:id',
         element: <ProfilePage />,
+      },
+      {
+        path: 'profile/:id/followers',
+        element: <FollowersPage />,
+      },
+      {
+        path: 'profile/:id/following',
+        element: <FollowingPage />,
       },
       {
         path: 'edit-profile',

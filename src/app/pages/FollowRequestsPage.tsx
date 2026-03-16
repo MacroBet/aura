@@ -13,41 +13,86 @@ export const FollowRequestsPage: React.FC = () => {
   const t = useTranslation(language);
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchRequests();
-  }, []);
+    if (user) {
+      fetchRequests();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`follow-requests-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'follows',
+          filter: `following_id=eq.${user.id}`,
+        },
+        () => {
+          fetchRequests();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   const fetchRequests = async () => {
-    const { data } = await supabase
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const { data, error } = await supabase
       .from('follows')
       .select(`
         *,
         profiles!follows_follower_id_fkey (*)
       `)
-      .eq('following_id', user!.id)
+      .eq('following_id', user.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false });
+
+    if (error) {
+      toast.error(error.message || t('failed_to_load_requests'));
+      setLoading(false);
+      return;
+    }
 
     setRequests(data || []);
     setLoading(false);
   };
 
   const handleRequest = async (id: string, accept: boolean) => {
+    if (processingId) return;
+    setProcessingId(id);
     try {
       if (accept) {
-        await supabase
+        const { error } = await supabase
           .from('follows')
           .update({ status: 'accepted' })
           .eq('id', id);
-        toast.success('Request accepted');
+        if (error) throw error;
+        toast.success(t('request_accepted'));
       } else {
-        await supabase.from('follows').delete().eq('id', id);
-        toast.success('Request declined');
+        const { error } = await supabase.from('follows').delete().eq('id', id);
+        if (error) throw error;
+        toast.success(t('request_declined'));
       }
-      fetchRequests();
+      await fetchRequests();
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error.message || t('failed_to_update_request'));
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -56,7 +101,7 @@ export const FollowRequestsPage: React.FC = () => {
       <div className="sticky top-0 bg-black/95 backdrop-blur-lg border-b border-white/10 z-40 p-4">
         <div className="flex items-center gap-2">
           <UserPlus className="w-6 h-6 text-purple-500" />
-          <h1 className="text-2xl font-bold">Follow Requests</h1>
+          <h1 className="text-2xl font-bold">{t('follow_requests')}</h1>
         </div>
       </div>
 
@@ -68,7 +113,7 @@ export const FollowRequestsPage: React.FC = () => {
         ) : requests.length === 0 ? (
           <div className="text-center py-12">
             <UserPlus className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-            <p className="text-gray-400">No pending requests</p>
+            <p className="text-gray-400">{t('no_pending_requests')}</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -88,6 +133,7 @@ export const FollowRequestsPage: React.FC = () => {
                     size="sm"
                     onClick={() => handleRequest(request.id, true)}
                     className="bg-green-600 hover:bg-green-700"
+                    disabled={processingId === request.id}
                   >
                     <Check className="w-4 h-4" />
                   </Button>
@@ -96,6 +142,7 @@ export const FollowRequestsPage: React.FC = () => {
                     variant="outline"
                     onClick={() => handleRequest(request.id, false)}
                     className="border-white/20"
+                    disabled={processingId === request.id}
                   >
                     <X className="w-4 h-4" />
                   </Button>

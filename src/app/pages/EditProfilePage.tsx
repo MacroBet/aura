@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, LogOut } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -22,13 +22,28 @@ export const EditProfilePage: React.FC = () => {
   const [selectedEmoji, setSelectedEmoji] = useState(profile?.avatar_emoji || emojiAvatars[0]);
   const [isPrivate, setIsPrivate] = useState(profile?.is_private || false);
   const [selectedLanguage, setSelectedLanguage] = useState<Language>(profile?.language || 'en');
-  const [loading, setLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
+
+  useEffect(() => {
+    if (!profile) return;
+    setBio(profile.bio || '');
+    setSelectedEmoji(profile.avatar_emoji || emojiAvatars[0]);
+    setIsPrivate(!!profile.is_private);
+    setSelectedLanguage(profile.language || 'en');
+  }, [profile]);
 
   const handleSave = async () => {
-    setLoading(true);
+    if (!user) {
+      toast.error('Not authenticated');
+      navigate('/auth');
+      return;
+    }
+
+    setSaveLoading(true);
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
         .update({
           bio,
@@ -37,23 +52,39 @@ export const EditProfilePage: React.FC = () => {
           language: selectedLanguage,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', user!.id);
+        .eq('id', user.id)
+        .select('*')
+        .maybeSingle();
 
       if (error) throw error;
+      if (!data) throw new Error('Profile update failed');
 
       setLanguage(selectedLanguage);
       await refreshProfile();
+
+      // Ensure UI state reflects what is persisted in DB.
+      const { data: reloadedProfile, error: reloadError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (reloadError) throw reloadError;
+      if (reloadedProfile) {
+        setIsPrivate(!!reloadedProfile.is_private);
+      }
+
       toast.success('Profile updated!');
-      navigate(`/app/profile/${user!.id}`);
+      navigate(`/app/profile/${user.id}`);
     } catch (error: any) {
       toast.error(error.message || 'Failed to update profile');
     } finally {
-      setLoading(false);
+      setSaveLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    setLoading(true);
+    setLogoutLoading(true);
     try {
       const { error } = await supabase.auth.signOut({ scope: 'global' });
       if (error) throw error;
@@ -66,7 +97,7 @@ export const EditProfilePage: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to log out');
     } finally {
-      setLoading(false);
+      setLogoutLoading(false);
     }
   };
 
@@ -78,8 +109,8 @@ export const EditProfilePage: React.FC = () => {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <h1 className="text-xl font-semibold">{t('edit_profile')}</h1>
-          <Button onClick={handleSave} disabled={loading} className="bg-purple-600 hover:bg-purple-700">
-            {loading ? t('loading') : t('save')}
+          <Button onClick={handleSave} disabled={saveLoading || logoutLoading} className="bg-purple-600 hover:bg-purple-700">
+            {saveLoading ? t('loading') : t('save')}
           </Button>
         </div>
       </div>
@@ -150,7 +181,7 @@ export const EditProfilePage: React.FC = () => {
           onClick={handleLogout}
           variant="outline"
           className="w-full border-red-500/50 text-red-400 hover:bg-red-500/10"
-          disabled={loading}
+          disabled={saveLoading || logoutLoading}
         >
           <LogOut className="w-4 h-4 mr-2" />
           {t('logout')}

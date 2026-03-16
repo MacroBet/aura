@@ -94,7 +94,8 @@ CREATE TABLE follows (
   status TEXT NOT NULL DEFAULT 'accepted',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(follower_id, following_id),
-  CHECK (follower_id != following_id)
+  CHECK (follower_id != following_id),
+  CHECK (status IN ('pending', 'accepted'))
 );
 
 -- Referrals table
@@ -408,6 +409,68 @@ AFTER UPDATE ON follows
 FOR EACH ROW
 EXECUTE FUNCTION notify_on_follow_accept();
 
+-- Function to enforce follow status on insert based on privacy
+CREATE OR REPLACE FUNCTION enforce_follow_insert_status()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_is_private BOOLEAN;
+BEGIN
+  SELECT is_private INTO v_is_private
+  FROM profiles
+  WHERE id = NEW.following_id;
+
+  IF v_is_private IS NULL THEN
+    RAISE EXCEPTION 'Target profile not found';
+  END IF;
+
+  IF NEW.follower_id = NEW.following_id THEN
+    RAISE EXCEPTION 'Cannot follow yourself';
+  END IF;
+
+  IF v_is_private THEN
+    NEW.status := 'pending';
+  ELSE
+    NEW.status := 'accepted';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trigger_enforce_follow_insert_status
+BEFORE INSERT ON follows
+FOR EACH ROW
+EXECUTE FUNCTION enforce_follow_insert_status();
+
+-- Function to enforce follow status transition rules
+CREATE OR REPLACE FUNCTION enforce_follow_update_transition()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.follower_id <> OLD.follower_id OR NEW.following_id <> OLD.following_id THEN
+    RAISE EXCEPTION 'Cannot change follow participants';
+  END IF;
+
+  IF OLD.status = 'pending' AND NEW.status = 'accepted' THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'Invalid follow status transition';
+END;
+$$;
+
+CREATE TRIGGER trigger_enforce_follow_update_transition
+BEFORE UPDATE ON follows
+FOR EACH ROW
+EXECUTE FUNCTION enforce_follow_update_transition();
+
 -- ============================================
 -- ROW LEVEL SECURITY POLICIES
 -- ============================================
@@ -510,17 +573,32 @@ CREATE POLICY "Users can delete own comments"
   USING (auth.uid() = user_id);
 
 -- Follows policies
-CREATE POLICY "Follows viewable by everyone"
+CREATE POLICY "Follows select policy"
   ON follows FOR SELECT
-  USING (true);
+  USING (
+    status = 'accepted'
+    OR auth.uid() = follower_id
+    OR auth.uid() = following_id
+  );
 
 CREATE POLICY "Users can insert own follows"
   ON follows FOR INSERT
-  WITH CHECK (auth.uid() = follower_id);
+  WITH CHECK (
+    auth.uid() = follower_id
+    AND follower_id <> following_id
+    AND status IN ('pending', 'accepted')
+  );
 
-CREATE POLICY "Users can update own follows"
+CREATE POLICY "Users can approve own pending follows"
   ON follows FOR UPDATE
-  USING (auth.uid() = following_id OR auth.uid() = follower_id);
+  USING (
+    auth.uid() = following_id
+    AND status = 'pending'
+  )
+  WITH CHECK (
+    auth.uid() = following_id
+    AND status = 'accepted'
+  );
 
 CREATE POLICY "Users can delete own follows"
   ON follows FOR DELETE

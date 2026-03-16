@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { Settings, UserPlus, UserMinus, Lock } from 'lucide-react';
 import { Button } from '../components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { ActionCard } from '../components/ActionCard';
 import { useAuth, useLanguage } from '../../lib/contexts';
 import { useTranslation } from '../../lib/translations';
@@ -22,6 +21,7 @@ export const ProfilePage: React.FC = () => {
   const [followStatus, setFollowStatus] = useState<string | null>(null);
   const [stats, setStats] = useState({ followers: 0, following: 0, actionsCount: 0, confirmationsReceived: 0 });
   const [loading, setLoading] = useState(true);
+  const [followLoading, setFollowLoading] = useState(false);
   const isOwnProfile = user?.id === id;
 
   useEffect(() => {
@@ -30,6 +30,26 @@ export const ProfilePage: React.FC = () => {
     fetchActions();
     fetchCategories();
   }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    const channel = supabase
+      .channel(`profile-follows-${id}-${user?.id || 'anon'}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'follows' },
+        () => {
+          fetchFollowStatus();
+          fetchStats();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id, user?.id]);
 
   const fetchProfile = async () => {
     const { data } = await supabase
@@ -43,14 +63,22 @@ export const ProfilePage: React.FC = () => {
   };
 
   const fetchFollowStatus = async () => {
+    setIsFollowing(false);
+    setFollowStatus(null);
+
     if (!user || isOwnProfile) return;
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('follows')
       .select('status')
       .eq('follower_id', user.id)
       .eq('following_id', id)
       .maybeSingle();
+
+    if (error) {
+      toast.error(error.message || t('failed_to_load_follow_state'));
+      return;
+    }
 
     if (data) {
       setIsFollowing(true);
@@ -105,28 +133,39 @@ export const ProfilePage: React.FC = () => {
   };
 
   const handleFollow = async () => {
-    if (!user) return;
+    if (!user || !id || followLoading) return;
+    setFollowLoading(true);
 
     try {
       if (isFollowing) {
-        await supabase.from('follows').delete().eq('follower_id', user.id).eq('following_id', id);
-        setIsFollowing(false);
-        setFollowStatus(null);
-        toast.success('Unfollowed');
+        const { error } = await supabase
+          .from('follows')
+          .delete()
+          .eq('follower_id', user.id)
+          .eq('following_id', id);
+        if (error) throw error;
+
+        await fetchFollowStatus();
+        toast.success(followStatus === 'pending' ? t('request_cancelled') : t('unfollowed_success'));
       } else {
-        const status = profile?.is_private ? 'pending' : 'accepted';
-        await supabase.from('follows').insert({
+        const { data, error } = await supabase.from('follows').insert({
           follower_id: user.id,
           following_id: id,
-          status,
-        });
+          status: 'accepted',
+        }).select('status').maybeSingle();
+        if (error) throw error;
+        if (!data?.status) throw new Error(t('follow_update_failed'));
+
         setIsFollowing(true);
-        setFollowStatus(status);
-        toast.success(status === 'pending' ? 'Follow request sent' : 'Following');
+        setFollowStatus(data.status);
+        await fetchFollowStatus();
+        toast.success(data.status === 'pending' ? t('follow_request_sent') : t('following_success'));
       }
-      fetchStats();
+      await fetchStats();
     } catch (error: any) {
-      toast.error(error.message || 'Failed to follow');
+      toast.error(error.message || t('follow_update_failed'));
+    } finally {
+      setFollowLoading(false);
     }
   };
 
@@ -166,6 +205,7 @@ export const ProfilePage: React.FC = () => {
               onClick={handleFollow}
               variant={isFollowing ? 'outline' : 'default'}
               className={isFollowing ? 'border-white/20' : 'bg-purple-600 hover:bg-purple-700'}
+              disabled={followLoading}
             >
               {isFollowing ? (
                 followStatus === 'pending' ? (
@@ -199,23 +239,23 @@ export const ProfilePage: React.FC = () => {
             <p className="text-sm text-gray-400">{t('total_aura')}</p>
           </div>
           <div className="text-center">
-            <p className="text-2xl font-bold">{stats.followers}</p>
-            <p className="text-sm text-gray-400">{t('followers')}</p>
+            <Link to={`/app/profile/${id}/followers`} className="block">
+              <p className="text-2xl font-bold">{stats.followers}</p>
+              <p className="text-sm text-gray-400">{t('followers')}</p>
+            </Link>
           </div>
           <div className="text-center">
-            <p className="text-2xl font-bold">{stats.following}</p>
-            <p className="text-sm text-gray-400">{t('following')}</p>
+            <Link to={`/app/profile/${id}/following`} className="block">
+              <p className="text-2xl font-bold">{stats.following}</p>
+              <p className="text-sm text-gray-400">{t('following')}</p>
+            </Link>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4">
           <div className="bg-white/5 rounded-lg p-3">
-            <p className="text-sm text-gray-400">{t('actions_posted')}</p>
-            <p className="text-xl font-bold">{stats.actionsCount}</p>
-          </div>
-          <div className="bg-white/5 rounded-lg p-3">
-            <p className="text-sm text-gray-400">{t('confirmations_received')}</p>
-            <p className="text-xl font-bold">{stats.confirmationsReceived}</p>
+            <p className="text-sm text-gray-400">{t('total_aura')}</p>
+            <p className="text-xl font-bold">{profile.aura_total}</p>
           </div>
         </div>
       </div>
