@@ -40,7 +40,7 @@ export const ActionCard: React.FC<ActionCardProps> = ({ action, category, profil
         .select('id')
         .eq('action_id', action.id)
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
       
       setHasConfirmed(!!data);
     };
@@ -83,7 +83,7 @@ export const ActionCard: React.FC<ActionCardProps> = ({ action, category, profil
     try {
       if (navigator.share) {
         await navigator.share({
-          title: `${profile.nickname}'s action on Aura`,
+          title: `${profile?.nickname || 'User'}'s action on Aura`,
           text: action.body,
           url,
         });
@@ -97,19 +97,23 @@ export const ActionCard: React.FC<ActionCardProps> = ({ action, category, profil
   };
 
   const expired = isActionExpired(action.expires_at);
-  const potentialAura = calculateAura(category.base_points, confirmCount || 1);
+  const categoryBasePoints = category?.base_points ?? 0;
+  const categorySlug = category?.slug;
+  const potentialAura = calculateAura(categoryBasePoints, confirmCount || 1);
   const isVoid = expired && confirmCount === 0;
 
   return (
     <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl p-4 mb-4">
       {/* Header */}
-      <Link to={`/app/profile/${profile.id}`} className="flex items-center gap-3 mb-3">
+      <Link to={`/app/profile/${profile?.id || action.user_id}`} className="flex items-center gap-3 mb-3">
         <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-xl">
-          {profile.avatar_emoji || '✨'}
+          {profile?.avatar_emoji || '✨'}
         </div>
         <div>
-          <p className="font-semibold">@{profile.nickname}</p>
-          <p className="text-sm text-gray-400">{t(`cat_${category.slug}`)}</p>
+          <p className="font-semibold">@{profile?.nickname || 'user'}</p>
+          <p className="text-sm text-gray-400">
+            {categorySlug ? t(`cat_${categorySlug}`) : 'Category'}
+          </p>
         </div>
       </Link>
 
